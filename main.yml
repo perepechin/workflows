@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false # Prevents ongoing deployments from being canceled
+
+env:
+  SERVER_ADDR: ${{ vars.SERVER_ADDR }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    env:
+      DOCKER_BUILDKIT: 1
+      RAILS_ENV: production
+      BUNDLE_WITHOUT: “default development test production profiling”
+      BUNDLE_WITH: tools
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.3.0
+          bundler-cache: true
+          cache-version: 'tools-v1-${{ runner.os }}'
+
+      - name: Set up Docker Buildx for cache
+        uses: docker/setup-buildx-action@v3
+
+      - name: Expose GitHub Runtime for cache
+        uses: crazy-max/ghaction-github-runtime@v3
+
+      - name: Set up SSH connection
+        run: |
+          # Create SSH directory and write the private key
+          mkdir -p ~/.ssh && echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
+          # Enable current SSH key
+          eval $(ssh-agent -s) && ssh-add ~/.ssh/id_rsa
+          # Add the server to known_hosts (use `-p 2222` for custom port if needed)
+          ssh-keyscan $SERVER_ADDR >> ~/.ssh/known_hosts
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy with Kamal
+        run: bin/kamal deploy
+        env:         
+          KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
+          KAMAL_REGISTRY_USERNAME: ${{ vars.KAMAL_REGISTRY_USERNAME }}
+          USE_SECURE_COOKIES: true
+          NEXT_PUBLIC_ENV: production
+          NEXT_PUBLIC_URL: ${{ vars.NEXT_PUBLIC_URL }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ vars.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ vars.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_APP_ID }}
+          FIREBASE_ADMIN_PRIVATE_KEY: ${{ secrets.FIREBASE_ADMIN_PRIVATE_KEY }}
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          FIREBASE_ADMIN_CLIENT_EMAIL: ${{ vars.FIREBASE_ADMIN_CLIENT_EMAIL }}
+          COOKIE_SECRET_CURRENT: ${{ secrets.COOKIE_SECRET_CURRENT }}
+          COOKIE_SECRET_PREVIOUS: ${{ secrets.COOKIE_SECRET_PREVIOUS }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          BLACKBLAZE_PUBLIC_URL: ${{ vars.BLACKBLAZE_PUBLIC_URL }}
+          REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+          BACKBLAZE_APPLICATION_KEY_ID: ${{ secrets.BACKBLAZE_APPLICATION_KEY_ID }}
+          BACKBLAZE_APPLICATION_KEY: ${{ secrets.BACKBLAZE_APPLICATION_KEY }}
+          BACKBLAZE_BUCKET_ID: ${{ vars.BACKBLAZE_BUCKET_ID }}
+          OPENAI_SECRET_KEY: ${{ secrets.OPENAI_SECRET_KEY }}
+          REPLICATE_MODEL_OWNER: ${{ vars.REPLICATE_MODEL_OWNER }}
